@@ -1,0 +1,12 @@
+fecha,descripcion,debito,credito,saldo
+# Formato alternativo con importe único (positivo = ingreso, negativo = egreso):
+#   fecha,descripcion,importe,saldo
+#
+# El script acepta ambos formatos y autodetecta las columnas.
+# Formato de fechas: YYYY-MM-DD o DD/MM/YYYY
+# Guardar datos reales en: datos/2025/extracto-<banco>-<mes>-2025.csv
+# Usar ID de cuenta correcto: node scripts/importar-extractos.mjs --cuentas
+2025-01-02,Saldo inicial,,0,500000
+2025-01-05,TRANSF RECIBIDA CLIENTE,0,120000,620000
+2025-01-10,PAGO PROVEEDORES,45000,0,575000
+2025-01-15,COMISION MANTENIMIENTO,850,0,574150

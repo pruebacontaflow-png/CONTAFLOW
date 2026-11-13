@@ -1,0 +1,20 @@
+.next/
+node_modules/
+*.db
+*.db-shm
+*.db-wal
+.env.local
+facturas-pdf/
+datos/
+backups/
+datos/drive-token.json
+# Bases y backups con datos reales (nunca subir)
+*.db.*
+*.db.bak*
+contaflow_*.db
+tsconfig.tsbuildinfo
+test-arca.txt
+.claude/
+*.pem
+*.key
+*.crt

@@ -1,0 +1,5 @@
+cuit,razon_social,condicion_iva,direccion,telefono,email,contacto
+# Formato: CUIT con guiones (xx-xxxxxxxx-x), todos los campos separados por coma
+# Condicion_iva: Responsable Inscripto | Monotributista | Exento | No Responsable
+# Completar con datos reales y guardar en datos/2025/proveedores.csv
+30-00000000-0,PROVEEDOR EJEMPLO SA,Responsable Inscripto,Av. Corrientes 1234 CABA,011-4111-2222,info@proveedor.com,Nombre Contacto

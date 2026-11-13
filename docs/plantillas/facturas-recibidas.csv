@@ -1,0 +1,7 @@
+cuit_emisor,razon_social_emisor,tipo_comprobante,punto_venta,numero,fecha_emision,fecha_vencimiento,neto_gravado,iva_21,iva_10_5,iva_27,percepcion_iva,percepcion_iibb,percepcion_otras,total,cae,concepto
+# Formato de fechas: YYYY-MM-DD o DD/MM/YYYY
+# tipo_comprobante: Factura A | Factura B | Factura C | Nota de Débito A | Nota de Crédito A | etc.
+# punto_venta y numero: solo números (sin ceros a la izquierda en el CSV, el sistema no los requiere)
+# cae: 14 dígitos (puede ir vacío si no se tiene)
+# Guardar datos reales en: datos/2025/facturas-recibidas.csv
+30-00000000-0,PROVEEDOR EJEMPLO SA,Factura A,1,1234,2025-01-15,2025-02-15,100000,21000,0,0,0,3500,0,124500,12345678901234,Descripción del servicio

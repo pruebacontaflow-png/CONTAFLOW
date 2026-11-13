@@ -1,0 +1,127 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.spin-anim {
+  animation: spin 1s linear infinite;
+}
+
+:root {
+  --color-primary: #185fa5;
+  --color-primary-dark: #134a80;
+  --color-primary-light: #e8f0fa;
+  --color-positive: #0F6E56;
+  --color-positive-light: #e6f4f0;
+  --color-negative: #993C1D;
+  --color-negative-light: #f9ece7;
+  --color-warning: #854F0B;
+  --color-warning-light: #fef3e2;
+  --color-bg: #f1f3f6;
+  --color-card: #ffffff;
+  --color-border: rgba(0,0,0,0.10);
+  --color-text: #1a1a2e;
+  --color-text-secondary: #6b7280;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  background-color: var(--color-bg);
+  color: var(--color-text);
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  margin: 0;
+  padding: 0;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: #f1f3f6; }
+::-webkit-scrollbar-thumb { background: #c1c7d0; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #a0a9b5; }
+
+/* Tablas */
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.data-table th {
+  background: #f7f8fa;
+  padding: 10px 14px;
+  text-align: left;
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-bottom: 0.5px solid var(--color-border);
+  white-space: nowrap;
+}
+
+.data-table td {
+  padding: 11px 14px;
+  border-bottom: 0.5px solid rgba(0,0,0,0.06);
+  vertical-align: middle;
+}
+
+.data-table tr:last-child td {
+  border-bottom: none;
+}
+
+.data-table tbody tr:hover {
+  background: #f9fafc;
+}
+
+/* Inputs */
+input[type="text"],
+input[type="email"],
+input[type="number"],
+input[type="date"],
+input[type="password"],
+select,
+textarea {
+  border: 0.5px solid var(--color-border);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 14px;
+  font-family: 'Inter', system-ui, sans-serif;
+  color: var(--color-text);
+  background: white;
+  width: 100%;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px rgba(24, 95, 165, 0.08);
+}
+
+/* Badges de estado */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.badge-green { background: var(--color-positive-light); color: var(--color-positive); }
+.badge-red { background: var(--color-negative-light); color: var(--color-negative); }
+.badge-yellow { background: var(--color-warning-light); color: var(--color-warning); }
+.badge-blue { background: var(--color-primary-light); color: var(--color-primary); }
+.badge-gray { background: #f0f2f5; color: #6b7280; }
+.badge-orange { background: #fff3e0; color: #e65100; }
