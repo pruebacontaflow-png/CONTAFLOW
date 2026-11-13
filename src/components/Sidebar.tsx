@@ -70,6 +70,7 @@ const NAV_GROUPS = [
       { href: "/reportes", label: "Reportes", icon: BarChart3 },
       { href: "/retenciones-config", label: "Config. retenciones", icon: Percent },
       { href: "/reglas-clasificacion", label: "Reglas de clasif.", icon: Filter },
+      { href: "/controles", label: "Controles de cuadre", icon: ShieldCheck },
     ],
   },
   {
