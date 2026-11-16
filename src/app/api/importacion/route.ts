@@ -1,8 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import db from "@/lib/db";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
 
 export async function POST(req: NextRequest) {
   try {
+  const session = await getServerSession(authOptions);
+  if (!session) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+
     const { tipo, filas } = await req.json();
     if (!tipo || !filas || !Array.isArray(filas)) return NextResponse.json({ error: 'Datos inválidos' }, { status: 400 });
 

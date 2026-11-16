@@ -1,8 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import db from "@/lib/db";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
 
 export async function GET() {
   try {
+  const session = await getServerSession(authOptions);
+  if (!session) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+
     const cuentas = await db.all(`SELECT * FROM cuentas_bancarias ORDER BY moneda, banco`);
     const historial = await db.all(
       `SELECT mb.*, cb.banco, cb.tipo FROM movimientos_bancarios mb JOIN cuentas_bancarias cb ON cb.id = mb.cuenta_id ORDER BY mb.created_at DESC LIMIT 50`
@@ -15,6 +20,9 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   try {
+  const session = await getServerSession(authOptions);
+  if (!session) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+
     const { banco, tipo, moneda, saldo_actual } = await req.json();
     if (!banco) return NextResponse.json({ error: 'Banco requerido' }, { status: 400 });
     const result = await db.run(

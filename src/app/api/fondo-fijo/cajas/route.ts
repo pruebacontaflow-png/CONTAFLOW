@@ -1,8 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import db from "@/lib/db";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
 
 export async function GET() {
   try {
+  const session = await getServerSession(authOptions);
+  if (!session) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+
     const rows = await db.all(
       `SELECT c.*,
        COUNT(m.id) as total_movimientos,
@@ -20,6 +25,9 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   try {
+  const session = await getServerSession(authOptions);
+  if (!session) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+
     const { nombre, moneda, responsable } = await req.json();
     if (!nombre) return NextResponse.json({ error: 'Nombre requerido' }, { status: 400 });
     const r = await db.run(

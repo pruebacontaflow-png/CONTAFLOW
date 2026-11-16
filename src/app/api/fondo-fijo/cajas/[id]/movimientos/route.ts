@@ -1,8 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import db from "@/lib/db";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
 
 export async function GET(_: NextRequest, { params }: { params: { id: string } }) {
   try {
+  const session = await getServerSession(authOptions);
+  if (!session) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+
     const rows = await db.all(
       `SELECT m.*, c.nombre as caja_nombre, c.moneda
        FROM fondo_fijo_movimientos m
@@ -19,6 +24,9 @@ export async function GET(_: NextRequest, { params }: { params: { id: string } }
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {
+  const session = await getServerSession(authOptions);
+  if (!session) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+
     const { fecha, tipo, importe, descripcion, proyecto, area, comprobante_numero, moneda } = await req.json();
     if (!fecha || !importe) return NextResponse.json({ error: 'Fecha e importe requeridos' }, { status: 400 });
 

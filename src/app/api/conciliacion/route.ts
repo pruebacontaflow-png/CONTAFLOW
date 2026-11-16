@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import db from "@/lib/db";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -151,6 +153,9 @@ function parseARCA(
 
 export async function POST(req: NextRequest) {
   try {
+  const session = await getServerSession(authOptions);
+  if (!session) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+
     const { contenido, modo } = await req.json();
 
     if (!contenido || typeof contenido !== "string") {

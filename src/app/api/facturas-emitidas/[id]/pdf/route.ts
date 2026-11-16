@@ -2,12 +2,17 @@ import { NextRequest, NextResponse } from "next/server";
 import fs from "fs";
 import path from "path";
 import db from "@/lib/db";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
 
 export async function POST(
   req: NextRequest,
   { params }: { params: { id: string } }
 ) {
   try {
+  const session = await getServerSession(authOptions);
+  if (!session) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+
     const formData = await req.formData();
     const file = formData.get("pdf") as File | null;
 
@@ -57,6 +62,9 @@ export async function DELETE(
   { params }: { params: { id: string } }
 ) {
   try {
+  const session = await getServerSession(authOptions);
+  if (!session) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+
     const factura = await db.get(
       `SELECT pdf_path FROM facturas_emitidas WHERE id = ?`,
       [params.id]

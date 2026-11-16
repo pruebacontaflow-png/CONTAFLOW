@@ -1,8 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import db from "@/lib/db";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
 
 export async function GET(req: NextRequest) {
   try {
+  const session = await getServerSession(authOptions);
+  if (!session) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+
     const { searchParams } = new URL(req.url);
     const incluirPagados = searchParams.get('incluirPagados') === 'true';
 
@@ -28,6 +33,9 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
+  const session = await getServerSession(authOptions);
+  if (!session) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+
     const { descripcion, fecha_vencimiento, importe, estado } = await req.json();
     if (!descripcion || !fecha_vencimiento) return NextResponse.json({ error: 'Campos requeridos' }, { status: 400 });
     const result = await db.run(

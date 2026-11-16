@@ -1,8 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import db from "@/lib/db";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
 
 export async function GET() {
   try {
+  const session = await getServerSession(authOptions);
+  if (!session) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+
     const productos = await db.all(
       `SELECT p.*, COUNT(m.id) as total_movimientos FROM productos p LEFT JOIN stock_movimientos m ON m.producto_id = p.id WHERE p.activo=1 GROUP BY p.id ORDER BY p.nombre`
     );
@@ -14,6 +19,9 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   try {
+  const session = await getServerSession(authOptions);
+  if (!session) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+
     const { codigo, nombre, unidad, stock_minimo, observaciones } = await req.json();
     if (!nombre) return NextResponse.json({ error: 'Nombre requerido' }, { status: 400 });
     const r = await db.run(

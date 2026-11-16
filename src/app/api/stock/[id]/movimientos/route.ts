@@ -1,8 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import db from "@/lib/db";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
 
 export async function GET(_: NextRequest, { params }: { params: { id: string } }) {
   try {
+  const session = await getServerSession(authOptions);
+  if (!session) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+
     const rows = await db.all(
       `SELECT * FROM stock_movimientos WHERE producto_id=? ORDER BY fecha DESC, id DESC`,
       [params.id]
@@ -15,6 +20,9 @@ export async function GET(_: NextRequest, { params }: { params: { id: string } }
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {
+  const session = await getServerSession(authOptions);
+  if (!session) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+
     const { fecha, tipo, cantidad, destino, observaciones } = await req.json();
     if (!fecha || !cantidad) return NextResponse.json({ error: 'Fecha y cantidad requeridas' }, { status: 400 });
 

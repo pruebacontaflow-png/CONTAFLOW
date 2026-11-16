@@ -1,8 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import db from "@/lib/db";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
 
 export async function GET(req: NextRequest) {
   try {
+  const session = await getServerSession(authOptions);
+  if (!session) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+
     const { searchParams } = new URL(req.url);
     const search = searchParams.get('search') || '';
     const anio = searchParams.get('anio') || new Date().getFullYear().toString();
@@ -31,6 +36,9 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
+  const session = await getServerSession(authOptions);
+  if (!session) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+
     const { razon_social, cuit, categoria, email, telefono, condicion_iva } = await req.json();
     if (!razon_social || !cuit) return NextResponse.json({ error: 'Razón social y CUIT son requeridos' }, { status: 400 });
 
