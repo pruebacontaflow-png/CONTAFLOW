@@ -726,6 +726,17 @@ async function initializeSchema() {
     periodo TEXT DEFAULT '2025'
   )`);
 
+  // BLOQUE A etapa 6 — cuentas no operativas del flujo de caja (configurables)
+  await c.execute(`CREATE TABLE IF NOT EXISTS cuentas_excluidas_dashboard (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    cuenta_tango TEXT NOT NULL UNIQUE,
+    descripcion TEXT DEFAULT '',
+    activa INTEGER DEFAULT 1
+  )`);
+  await c.execute(`INSERT OR IGNORE INTO cuentas_excluidas_dashboard (cuenta_tango, descripcion) VALUES ('11475', 'Préstamos')`);
+  await c.execute(`INSERT OR IGNORE INTO cuentas_excluidas_dashboard (cuenta_tango, descripcion) VALUES ('11485', 'Cuenta particular LJ')`);
+  await c.execute(`INSERT OR IGNORE INTO cuentas_excluidas_dashboard (cuenta_tango, descripcion) VALUES ('11404', 'Anticipos LJ')`);
+
   // Datos iniciales de retenciones_config (solo si la tabla está vacía)
   const countRet = await c.execute(`SELECT COUNT(*) as n FROM retenciones_config`);
   const n = countRet.rows[0]?.[0];

@@ -10,146 +10,223 @@ export async function GET(req: NextRequest) {
 
     const { searchParams } = new URL(req.url);
     const year = parseInt(searchParams.get('year') || String(new Date().getFullYear()));
-    const semestre = parseInt(searchParams.get('semestre') || '1');
+    const mesParam = searchParams.get('meses') || '';
+    // meses: comma-sep '01,02,...' o vacío = todos
+    const meses: string[] = mesParam
+      ? mesParam.split(',').map(m => m.trim().padStart(2, '0')).filter(m => m.length === 2)
+      : ['01','02','03','04','05','06','07','08','09','10','11','12'];
 
-    const mesInicio = semestre === 1 ? '01' : '07';
-    const mesFin = semestre === 1 ? '06' : '12';
-    const fechaInicio = `${year}-${mesInicio}-01`;
-    const fechaFin = `${year}-${mesFin}-31`;
+    const hoy = new Date().toISOString().split('T')[0];
+    const en7Dias = new Date(new Date(hoy + 'T00:00:00').getTime() + 7 * 86400000).toISOString().split('T')[0];
 
-    const ingresos = await db.get(
-      `SELECT COALESCE(SUM(importe_total), 0) as total FROM facturas_emitidas WHERE fecha_emision >= ? AND fecha_emision <= ? AND tipo_comprobante NOT LIKE 'Nota de Cr%'`,
-      [fechaInicio, fechaFin]
+    // ── Condición de período (meses seleccionados) ───────────────────────────
+    const mesPlaceholders = meses.map(() => '?').join(',');
+    const mesArgs: string[] = [...meses];
+
+    // ── 1. Ventas del período: neto gravado + no gravado + exento de fe (NC restan, ya son negativas) ──
+    const ventasRes = await db.get(
+      `SELECT COALESCE(SUM(neto_gravado + neto_no_gravado + exento), 0) as total
+       FROM facturas_emitidas
+       WHERE strftime('%Y', fecha_emision) = ? AND strftime('%m', fecha_emision) IN (${mesPlaceholders})`,
+      [String(year), ...mesArgs]
     );
 
-    const egresos = await db.get(
-      `SELECT COALESCE(SUM(importe_total), 0) as total FROM facturas_recibidas WHERE fecha_emision >= ? AND fecha_emision <= ? AND tipo_comprobante NOT LIKE 'Nota de Cr%'`,
-      [fechaInicio, fechaFin]
+    // ── 2. Ingresos y egresos por banco ──────────────────────────────────────
+    const ingresoBancoRes = await db.get(
+      `SELECT COALESCE(SUM(credito), 0) as total FROM extractos_lineas
+       WHERE strftime('%Y', fecha) = ? AND strftime('%m', fecha) IN (${mesPlaceholders})`,
+      [String(year), ...mesArgs]
+    );
+    const egresoBancoRes = await db.get(
+      `SELECT COALESCE(SUM(debito), 0) as total FROM extractos_lineas
+       WHERE strftime('%Y', fecha) = ? AND strftime('%m', fecha) IN (${mesPlaceholders})`,
+      [String(year), ...mesArgs]
     );
 
-    const ncRecibidas = await db.get(
-      `SELECT COUNT(*) as count, COALESCE(SUM(importe_total), 0) as total FROM facturas_recibidas WHERE fecha_emision >= ? AND fecha_emision <= ? AND tipo_comprobante LIKE 'Nota de Cr%'`,
-      [fechaInicio, fechaFin]
+    // ── 3. Cobros por vencer a 7 días ────────────────────────────────────────
+    const VTO_FE = `COALESCE(NULLIF(fecha_vencimiento,''), fecha_emision)`;
+    const PEND_FE = `tipo_comprobante NOT LIKE 'Nota de Cr%' AND nc_imputa_id IS NULL
+      AND id NOT IN (SELECT nc_imputa_id FROM facturas_emitidas WHERE nc_imputa_id IS NOT NULL)
+      AND (fecha_cobro IS NULL OR fecha_cobro = '' OR fecha_cobro > '${hoy}')`;
+    const cobrosPorVencer7dRes = await db.get(
+      `SELECT COUNT(*) as count, COALESCE(SUM(importe_total), 0) as total
+       FROM facturas_emitidas
+       WHERE ${PEND_FE} AND ${VTO_FE} >= ? AND ${VTO_FE} <= ?`,
+      [hoy, en7Dias]
     );
 
-    const ncEmitidas = await db.get(
-      `SELECT COUNT(*) as count, COALESCE(SUM(importe_total), 0) as total FROM facturas_emitidas WHERE fecha_emision >= ? AND fecha_emision <= ? AND tipo_comprobante LIKE 'Nota de Cr%'`,
-      [fechaInicio, fechaFin]
-    );
-
-    // Fecha de corte: fin del período elegido, o hoy si el período todavía no terminó.
-    // El estado se calcula a esa fecha con la fecha real de pago / cobro (no con el estado actual).
-    const hoyReal = new Date().toISOString().split('T')[0];
-    const hoy = fechaFin < hoyReal ? fechaFin.replace(/-31$/, mesFin === '06' ? '-30' : '-31') : hoyReal;
-    const en30Dias = new Date(new Date(hoy + 'T00:00:00').getTime() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-    const VTO = `COALESCE(NULLIF(fecha_vencimiento,''), fecha_emision)`;
-    const PEND_FR = `tipo_comprobante NOT LIKE 'Nota de Cr%' AND COALESCE(estado_pago,'') NOT IN ('NO PAGAR') AND fecha_emision <= '${hoy}' AND id NOT IN (SELECT nc_imputa_id FROM facturas_recibidas WHERE nc_imputa_id IS NOT NULL) AND (fecha_pago IS NULL OR fecha_pago = '' OR fecha_pago > '${hoy}')`;
-    const PEND_FE = `tipo_comprobante NOT LIKE 'Nota de Cr%' AND nc_imputa_id IS NULL AND fecha_emision <= '${hoy}' AND id NOT IN (SELECT nc_imputa_id FROM facturas_emitidas WHERE nc_imputa_id IS NOT NULL) AND (fecha_cobro IS NULL OR fecha_cobro = '' OR fecha_cobro > '${hoy}')`;
-
-    const facturasPorVencer = await db.get(
-      `SELECT COUNT(*) as count, COALESCE(SUM(importe_total), 0) as total FROM facturas_recibidas WHERE ${PEND_FR} AND ${VTO} > ? AND ${VTO} <= ?`,
-      [hoy, en30Dias]
-    );
-
-    const cobrosPorVencer = await db.get(
-      `SELECT COUNT(*) as count, COALESCE(SUM(importe_total), 0) as total FROM facturas_emitidas WHERE ${PEND_FE} AND ${VTO} > ? AND ${VTO} <= ?`,
-      [hoy, en30Dias]
-    );
-
+    // ── 4. Saldo bancario total ──────────────────────────────────────────────
     const saldosBancarios = await db.all(`SELECT banco, tipo, moneda, saldo_actual FROM cuentas_bancarias ORDER BY moneda, banco`);
     const saldoTotal = saldosBancarios.filter(s => s.moneda === 'ARS').reduce((acc, s) => acc + (s.saldo_actual as number), 0);
 
-    const proxVencimientosFacturas = await db.all(
-      `SELECT fr.fecha_vencimiento, fr.importe_total as importe, p.razon_social as descripcion, 'factura' as tipo, fr.numero
-       FROM facturas_recibidas fr JOIN proveedores p ON p.id = fr.proveedor_id
-       WHERE fr.id IN (SELECT id FROM facturas_recibidas WHERE ${PEND_FR}) AND COALESCE(NULLIF(fr.fecha_vencimiento,''), fr.fecha_emision) > ?
-       ORDER BY fr.fecha_vencimiento ASC LIMIT 5`,
-      [hoy]
-    );
-
-    const proxVencimientosFiscales = await db.all(
-      `SELECT fecha_vencimiento, importe, descripcion, 'fiscal' as tipo FROM vencimientos_fiscales WHERE estado = 'pendiente' AND fecha_vencimiento >= ? ORDER BY fecha_vencimiento ASC LIMIT 5`,
-      [hoy]
-    );
-
-    const proxVencimientos = [...proxVencimientosFacturas, ...proxVencimientosFiscales]
-      .sort((a, b) => String(a.fecha_vencimiento).localeCompare(String(b.fecha_vencimiento)))
-      .slice(0, 8);
-
-    // Aging CxP (facturas_recibidas pendiente_pago)
-    const agingCxP = await db.get(
-      `SELECT
-        COALESCE(SUM(CASE WHEN ${VTO} > ? THEN importe_total ELSE 0 END), 0) as por_vencer,
-        COALESCE(SUM(CASE WHEN julianday(?) - julianday(${VTO}) BETWEEN 0 AND 29 THEN importe_total ELSE 0 END), 0) as venc_0_30,
-        COALESCE(SUM(CASE WHEN julianday(?) - julianday(${VTO}) BETWEEN 30 AND 59 THEN importe_total ELSE 0 END), 0) as venc_31_60,
-        COALESCE(SUM(CASE WHEN julianday(?) - julianday(${VTO}) >= 60 THEN importe_total ELSE 0 END), 0) as venc_mas_60,
-        COUNT(CASE WHEN ${VTO} > ? THEN 1 END) as cnt_por_vencer,
-        COUNT(CASE WHEN julianday(?) - julianday(${VTO}) BETWEEN 0 AND 29 THEN 1 END) as cnt_0_30,
-        COUNT(CASE WHEN julianday(?) - julianday(${VTO}) BETWEEN 30 AND 59 THEN 1 END) as cnt_31_60,
-        COUNT(CASE WHEN julianday(?) - julianday(${VTO}) >= 60 THEN 1 END) as cnt_mas_60
-       FROM facturas_recibidas WHERE ${PEND_FR}`,
-      [hoy, hoy, hoy, hoy, hoy, hoy, hoy, hoy]
-    );
-
-    // Aging CxC (facturas_emitidas cobro_pendiente)
-    const agingCxC = await db.get(
-      `SELECT
-        COALESCE(SUM(CASE WHEN ${VTO} > ? THEN importe_total ELSE 0 END), 0) as por_vencer,
-        COALESCE(SUM(CASE WHEN julianday(?) - julianday(${VTO}) BETWEEN 0 AND 29 THEN importe_total ELSE 0 END), 0) as venc_0_30,
-        COALESCE(SUM(CASE WHEN julianday(?) - julianday(${VTO}) BETWEEN 30 AND 59 THEN importe_total ELSE 0 END), 0) as venc_31_60,
-        COALESCE(SUM(CASE WHEN julianday(?) - julianday(${VTO}) >= 60 THEN importe_total ELSE 0 END), 0) as venc_mas_60,
-        COUNT(CASE WHEN ${VTO} > ? THEN 1 END) as cnt_por_vencer,
-        COUNT(CASE WHEN julianday(?) - julianday(${VTO}) BETWEEN 0 AND 29 THEN 1 END) as cnt_0_30,
-        COUNT(CASE WHEN julianday(?) - julianday(${VTO}) BETWEEN 30 AND 59 THEN 1 END) as cnt_31_60,
-        COUNT(CASE WHEN julianday(?) - julianday(${VTO}) >= 60 THEN 1 END) as cnt_mas_60
-       FROM facturas_emitidas WHERE ${PEND_FE}`,
-      [hoy, hoy, hoy, hoy, hoy, hoy, hoy, hoy]
-    );
-
-    const ingresosPorTipo = await db.all(
-      `SELECT tipo_comprobante, COALESCE(SUM(importe_total), 0) as total FROM facturas_emitidas WHERE fecha_emision >= ? AND fecha_emision <= ? GROUP BY tipo_comprobante`,
-      [fechaInicio, fechaFin]
-    );
-
-    const egresosPorTipo = await db.all(
-      `SELECT tipo_comprobante, COALESCE(SUM(importe_total), 0) as total FROM facturas_recibidas WHERE fecha_emision >= ? AND fecha_emision <= ? GROUP BY tipo_comprobante`,
-      [fechaInicio, fechaFin]
-    );
-
-    const meses = semestre === 1 ? ['01','02','03','04','05','06'] : ['07','08','09','10','11','12'];
-    const evolucionMensual = await Promise.all(meses.map(async (mes) => {
-      const fi = `${year}-${mes}-01`;
-      const ff = `${year}-${mes}-31`;
-      const ing = await db.get(`SELECT COALESCE(SUM(importe_total),0) as t FROM facturas_emitidas WHERE fecha_emision >= ? AND fecha_emision <= ?`, [fi, ff]);
-      const eg = await db.get(`SELECT COALESCE(SUM(importe_total),0) as t FROM facturas_recibidas WHERE fecha_emision >= ? AND fecha_emision <= ?`, [fi, ff]);
-      return { mes: `${mes}/${String(year).slice(2)}`, ingresos: ing?.t || 0, egresos: eg?.t || 0 };
-    }));
-
-    // Inversiones
+    // ── 5. Inversiones ──────────────────────────────────────────────────────
     const invData = await db.all(`SELECT moneda, SUM(saldo_actual) as total FROM inversiones WHERE estado='activa' GROUP BY moneda`);
     const countInv = await db.get(`SELECT COUNT(*) as n FROM inversiones WHERE estado='activa'`);
     const invARS = invData.find(r => r.moneda === 'ARS')?.total || 0;
     const invUSD = invData.find(r => r.moneda === 'USD')?.total || 0;
     const inversiones = { ars: invARS as number, usd: invUSD as number, count: countInv?.n || 0, total: (invARS as number) + (invUSD as number) };
 
+    // ── 6. Aging CxP / CxC ──────────────────────────────────────────────────
+    const VTO_FR = `COALESCE(NULLIF(fecha_vencimiento,''), fecha_emision)`;
+    const PEND_FR = `tipo_comprobante NOT LIKE 'Nota de Cr%' AND COALESCE(estado_pago,'') NOT IN ('NO PAGAR') AND fecha_emision <= '${hoy}' AND id NOT IN (SELECT nc_imputa_id FROM facturas_recibidas WHERE nc_imputa_id IS NOT NULL) AND (fecha_pago IS NULL OR fecha_pago = '' OR fecha_pago > '${hoy}')`;
+    const agingCxP = await db.get(
+      `SELECT
+        COALESCE(SUM(CASE WHEN ${VTO_FR} > ? THEN importe_total ELSE 0 END), 0) as por_vencer,
+        COALESCE(SUM(CASE WHEN julianday(?) - julianday(${VTO_FR}) BETWEEN 0 AND 29 THEN importe_total ELSE 0 END), 0) as venc_0_30,
+        COALESCE(SUM(CASE WHEN julianday(?) - julianday(${VTO_FR}) BETWEEN 30 AND 59 THEN importe_total ELSE 0 END), 0) as venc_31_60,
+        COALESCE(SUM(CASE WHEN julianday(?) - julianday(${VTO_FR}) >= 60 THEN importe_total ELSE 0 END), 0) as venc_mas_60,
+        COUNT(CASE WHEN ${VTO_FR} > ? THEN 1 END) as cnt_por_vencer,
+        COUNT(CASE WHEN julianday(?) - julianday(${VTO_FR}) BETWEEN 0 AND 29 THEN 1 END) as cnt_0_30,
+        COUNT(CASE WHEN julianday(?) - julianday(${VTO_FR}) BETWEEN 30 AND 59 THEN 1 END) as cnt_31_60,
+        COUNT(CASE WHEN julianday(?) - julianday(${VTO_FR}) >= 60 THEN 1 END) as cnt_mas_60
+       FROM facturas_recibidas WHERE ${PEND_FR}`,
+      [hoy, hoy, hoy, hoy, hoy, hoy, hoy, hoy]
+    );
+    const agingCxC = await db.get(
+      `SELECT
+        COALESCE(SUM(CASE WHEN ${VTO_FE} > ? THEN importe_total ELSE 0 END), 0) as por_vencer,
+        COALESCE(SUM(CASE WHEN julianday(?) - julianday(${VTO_FE}) BETWEEN 0 AND 29 THEN importe_total ELSE 0 END), 0) as venc_0_30,
+        COALESCE(SUM(CASE WHEN julianday(?) - julianday(${VTO_FE}) BETWEEN 30 AND 59 THEN importe_total ELSE 0 END), 0) as venc_31_60,
+        COALESCE(SUM(CASE WHEN julianday(?) - julianday(${VTO_FE}) >= 60 THEN importe_total ELSE 0 END), 0) as venc_mas_60,
+        COUNT(CASE WHEN ${VTO_FE} > ? THEN 1 END) as cnt_por_vencer,
+        COUNT(CASE WHEN julianday(?) - julianday(${VTO_FE}) BETWEEN 0 AND 29 THEN 1 END) as cnt_0_30,
+        COUNT(CASE WHEN julianday(?) - julianday(${VTO_FE}) BETWEEN 30 AND 59 THEN 1 END) as cnt_31_60,
+        COUNT(CASE WHEN julianday(?) - julianday(${VTO_FE}) >= 60 THEN 1 END) as cnt_mas_60
+       FROM facturas_emitidas WHERE ${PEND_FE}`,
+      [hoy, hoy, hoy, hoy, hoy, hoy, hoy, hoy]
+    );
+
+    // ── 7. Flujo mensual banco (12 meses del año, excluye cuentas no operativas) ──
+    const excluidas = await db.all(`SELECT cuenta_tango FROM cuentas_excluidas_dashboard WHERE activa=1`);
+    const cuentasExcluidas = excluidas.map((r: any) => r.cuenta_tango as string);
+    const excClause = cuentasExcluidas.length > 0
+      ? `AND (cuenta_tango IS NULL OR cuenta_tango NOT IN (${cuentasExcluidas.map(() => '?').join(',')}))`
+      : '';
+
+    const MESES_12 = ['01','02','03','04','05','06','07','08','09','10','11','12'];
+    const LABELS_MES = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+
+    const flujoMensualBanco = await Promise.all(MESES_12.map(async (mes, i) => {
+      const args: (string | number)[] = [String(year), mes, ...cuentasExcluidas];
+      const r = await db.get(
+        `SELECT
+          COALESCE(SUM(credito), 0) as cred,
+          COALESCE(SUM(debito), 0) as deb
+         FROM extractos_lineas
+         WHERE strftime('%Y', fecha) = ? AND strftime('%m', fecha) = ? ${excClause}`,
+        args
+      );
+      const cred = Number(r?.cred || 0);
+      const deb = Number(r?.deb || 0);
+      return { mes: LABELS_MES[i], creditos: cred, debitos: deb, neto: cred - deb };
+    }));
+
+    // ── 8. Flujo mensual contable (12 meses, neto ventas - neto compras) ────
+    const flujoMensualContable = await Promise.all(MESES_12.map(async (mes, i) => {
+      const feR = await db.get(
+        `SELECT COALESCE(SUM(neto_gravado + neto_no_gravado + exento), 0) as neto
+         FROM facturas_emitidas
+         WHERE strftime('%Y', fecha_emision) = ? AND strftime('%m', fecha_emision) = ?`,
+        [String(year), mes]
+      );
+      const frR = await db.get(
+        `SELECT COALESCE(SUM(neto_gravado + neto_no_gravado + exento), 0) as neto
+         FROM facturas_recibidas
+         WHERE tipo_comprobante NOT LIKE 'Nota de Cr%'
+           AND strftime('%Y', fecha_emision) = ? AND strftime('%m', fecha_emision) = ?`,
+        [String(year), mes]
+      );
+      const ventas = Number(feR?.neto || 0);
+      const compras = Number(frR?.neto || 0);
+      return { mes: LABELS_MES[i], ventas, compras, neto: ventas - compras };
+    }));
+
+    // ── 9. Vencimientos agrupados por categoría ──────────────────────────────
+    const VENTANA_DIAS = 60; // muestra vencimientos de los próximos 60 días
+    const enNDias = new Date(new Date(hoy + 'T00:00:00').getTime() + VENTANA_DIAS * 86400000).toISOString().split('T')[0];
+
+    // Proveedores: facturas recibidas pendientes
+    const vProvItems = await db.all(
+      `SELECT fr.fecha_vencimiento as fecha,
+              p.razon_social as descripcion,
+              fr.importe_total as importe,
+              fr.numero
+       FROM facturas_recibidas fr
+       JOIN proveedores p ON p.id = fr.proveedor_id
+       WHERE fr.tipo_comprobante NOT LIKE 'Nota de Cr%'
+         AND fr.id NOT IN (SELECT nc_imputa_id FROM facturas_recibidas WHERE nc_imputa_id IS NOT NULL)
+         AND COALESCE(fr.estado_pago,'') NOT IN ('NO PAGAR')
+         AND (fr.fecha_pago IS NULL OR fr.fecha_pago = '')
+         AND COALESCE(NULLIF(fr.fecha_vencimiento,''), fr.fecha_emision) >= ?
+         AND COALESCE(NULLIF(fr.fecha_vencimiento,''), fr.fecha_emision) <= ?
+       ORDER BY COALESCE(NULLIF(fr.fecha_vencimiento,''), fr.fecha_emision) ASC
+       LIMIT 50`,
+      [hoy, enNDias]
+    );
+
+    // Impuestos: vencimientos fiscales
+    const vImpItems = await db.all(
+      `SELECT fecha_vencimiento as fecha, descripcion, importe
+       FROM vencimientos_fiscales
+       WHERE estado = 'pendiente' AND fecha_vencimiento >= ? AND fecha_vencimiento <= ?
+       ORDER BY fecha_vencimiento ASC LIMIT 30`,
+      [hoy, enNDias]
+    );
+
+    // Seguros: servicios_recurrentes tipo seguro
+    const vSegItems = await db.all(
+      `SELECT fecha_proximo_vto as fecha, descripcion, monto as importe
+       FROM servicios_recurrentes
+       WHERE estado = 'activo' AND tipo LIKE '%seguro%'
+         AND fecha_proximo_vto >= ? AND fecha_proximo_vto <= ?
+       ORDER BY fecha_proximo_vto ASC LIMIT 20`,
+      [hoy, enNDias]
+    );
+
+    // Servicios: servicios_recurrentes tipo servicio (no seguro)
+    const vSrvItems = await db.all(
+      `SELECT fecha_proximo_vto as fecha, descripcion, monto as importe
+       FROM servicios_recurrentes
+       WHERE estado = 'activo' AND tipo NOT LIKE '%seguro%'
+         AND fecha_proximo_vto >= ? AND fecha_proximo_vto <= ?
+       ORDER BY fecha_proximo_vto ASC LIMIT 20`,
+      [hoy, enNDias]
+    );
+
+    // Sueldos: nominas próximas (si hay con fecha futura o última del mes)
+    const vSuelItems = await db.all(
+      `SELECT fecha, 'Nómina bancaria' as descripcion, total as importe
+       FROM nominas_banco
+       WHERE fecha >= ?
+       ORDER BY fecha ASC LIMIT 5`,
+      [hoy]
+    );
+
+    const sumItems = (items: any[]) => items.reduce((s, r) => s + Number(r.importe || 0), 0);
+
+    const vencimientosGrupados = [
+      { id: 'proveedores', label: 'Proveedores', items: vProvItems, total: sumItems(vProvItems), count: vProvItems.length },
+      { id: 'impuestos',   label: 'Impuestos',   items: vImpItems,  total: sumItems(vImpItems),  count: vImpItems.length  },
+      { id: 'seguros',     label: 'Seguros',      items: vSegItems,  total: sumItems(vSegItems),  count: vSegItems.length  },
+      { id: 'servicios',   label: 'Servicios',    items: vSrvItems,  total: sumItems(vSrvItems),  count: vSrvItems.length  },
+      { id: 'sueldos',     label: 'Sueldos y salarios', items: vSuelItems, total: sumItems(vSuelItems), count: vSuelItems.length },
+    ];
+
     return NextResponse.json({
-      ingresos: ingresos?.total || 0,
-      egresos: egresos?.total || 0,
-      resultadoNeto: (ingresos?.total || 0) - (egresos?.total || 0),
-      ncRecibidas: { count: ncRecibidas?.count || 0, total: ncRecibidas?.total || 0 },
-      ncEmitidas: { count: ncEmitidas?.count || 0, total: ncEmitidas?.total || 0 },
-      facturasPorVencer: { count: facturasPorVencer?.count || 0, total: facturasPorVencer?.total || 0 },
-      cobrosPorVencer: { count: cobrosPorVencer?.count || 0, total: cobrosPorVencer?.total || 0 },
+      ventas: ventasRes?.total || 0,
+      ingresoBanco: ingresoBancoRes?.total || 0,
+      egresoBanco: egresoBancoRes?.total || 0,
+      cobrosPorVencer7d: { count: cobrosPorVencer7dRes?.count || 0, total: cobrosPorVencer7dRes?.total || 0 },
       saldosBancarios,
       saldoTotal,
-      proxVencimientos,
-      ingresosPorTipo,
-      egresosPorTipo,
-      evolucionMensual,
+      inversiones,
       agingCxP,
       agingCxC,
+      flujoMensualBanco,
+      flujoMensualContable,
+      vencimientosGrupados,
+      cuentasExcluidasBanco: cuentasExcluidas,
       fechaCorte: hoy,
-      inversiones,
     });
   } catch (error) {
     console.error('Dashboard API error:', error);
