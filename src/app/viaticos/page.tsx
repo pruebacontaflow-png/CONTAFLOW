@@ -3,183 +3,283 @@
 import { useEffect, useState } from "react";
 import { AppLayout } from "@/components/AppLayout";
 import { useSession } from "next-auth/react";
-import { Plus, Edit2, Trash2, X, Search, CheckCircle } from "lucide-react";
+import { ChevronDown, ChevronRight, FileText, Search, ExternalLink } from "lucide-react";
 import { formatCurrency, formatDate } from "@/lib/utils";
 
-const TIPOS = ["Combustible", "Peaje", "Comida", "Alojamiento", "Transporte", "Otros"];
+// ── Categoría a partir de la descripción ─────────────────────────────────────
+function clasificar(desc: string): string {
+  const d = (desc || "").toLowerCase();
+  if (/almuerzo|comida|merienda|restaurante|desayuno|caf[eé]|lunch|pizza|sushi|cerveza|resto\b|bar\b|empanada|medialunas|tenedor/.test(d))
+    return "Viático comida";
+  if (/nafta|gasolina|combustible|carga nafta|parking|estacionamiento|garage|didi|taxi|peaje|transporte|uber|cabify|remis|colectivo|subte|tren\b|bus\b/.test(d))
+    return "Viático transporte";
+  if (/celular|teléfono|telefono|phone/.test(d))
+    return "Viático celular";
+  return "Otro";
+}
 
-const emptyForm = { empleado: "", fecha: "", tipo: "", descripcion: "", importe: "", moneda: "ARS", comprobante_numero: "" };
+function badgeCategoria(cat: string) {
+  const map: Record<string, string> = {
+    "Viático comida":     "#0F6E56",
+    "Viático transporte": "#185fa5",
+    "Viático celular":    "#7c3aed",
+    "Otro":               "#6b7280",
+  };
+  return <span style={{ background: map[cat] + "18", color: map[cat], fontSize: "11px", fontWeight: 600, padding: "2px 7px", borderRadius: "10px", whiteSpace: "nowrap" }}>{cat}</span>;
+}
 
-export default function ViaticosPage() {
+function medioPagoLabel(mp: string) {
+  if (mp === "efectivo") return <span style={{ color: "#854F0B", fontWeight: 500 }}>Efectivo</span>;
+  if (mp === "transferencia") return <span style={{ color: "#185fa5", fontWeight: 500 }}>Transferencia</span>;
+  return <span style={{ color: "#9ca3af" }}>—</span>;
+}
+
+export default function RendicionesPage() {
   const { data: session } = useSession();
   const isAdmin = (session?.user as any)?.role === "admin";
-  const [viaticos, setViaticos] = useState<any[]>([]);
+
+  const [grupos, setGrupos] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
-  const [soloNoAprobados, setSoloNoAprobados] = useState(false);
-  const [showForm, setShowForm] = useState(false);
-  const [editId, setEditId] = useState<number | null>(null);
-  const [form, setForm] = useState({ ...emptyForm });
-  const [saving, setSaving] = useState(false);
+  const [expandidos, setExpandidos] = useState<Set<string>>(new Set());
+  const [generando, setGenerando] = useState<string | null>(null);
   const [error, setError] = useState("");
 
-  const fetch_ = async () => {
+  const cargar = async () => {
     setLoading(true);
-    const qs = new URLSearchParams({ search, soloNoAprobados: soloNoAprobados ? "1" : "" });
-    setViaticos(await (await fetch(`/api/viaticos?${qs}`)).json());
+    const qs = new URLSearchParams({ search });
+    const data = await (await fetch(`/api/rendiciones?${qs}`)).json();
+    setGrupos(Array.isArray(data) ? data : []);
     setLoading(false);
   };
 
-  useEffect(() => { fetch_(); }, [search, soloNoAprobados]);
+  useEffect(() => { cargar(); }, [search]);
 
-  const openEdit = (v: any) => {
-    setForm({ empleado: v.empleado, fecha: v.fecha, tipo: v.tipo, descripcion: v.descripcion || "", importe: String(v.importe), moneda: v.moneda, comprobante_numero: v.comprobante_numero || "" });
-    setEditId(v.id); setError(""); setShowForm(true);
+  const toggleExpand = (clave: string) => {
+    setExpandidos(prev => {
+      const next = new Set(prev);
+      if (next.has(clave)) next.delete(clave); else next.add(clave);
+      return next;
+    });
   };
 
-  const handleSave = async () => {
-    setSaving(true); setError("");
-    const url = editId ? `/api/viaticos/${editId}` : "/api/viaticos";
-    const res = await fetch(url, { method: editId ? "PUT" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...form, importe: parseFloat(form.importe) || 0 }) });
-    if (res.ok) { setShowForm(false); fetch_(); } else { const j = await res.json(); setError(j.error || "Error"); }
-    setSaving(false);
+  const generarOp = async (g: any) => {
+    if (!confirm(`Generar ${g.medio_pago === "efectivo" ? "OPE (efectivo)" : "OP (transferencia)"} para la rendición de ${g.empleado}?`)) return;
+    setGenerando(g.clave); setError("");
+    const res = await fetch("/api/rendiciones/generar-op", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ clave: g.clave, medio_pago: g.medio_pago }),
+    });
+    if (res.ok) {
+      const j = await res.json();
+      alert(`${j.numero} generada correctamente`);
+      cargar();
+    } else {
+      const j = await res.json();
+      setError(j.error || "Error al generar OP");
+    }
+    setGenerando(null);
   };
 
-  const handleDelete = async (id: number) => {
-    if (!confirm("¿Eliminar este viático?")) return;
-    await fetch(`/api/viaticos/${id}`, { method: "DELETE" });
-    fetch_();
-  };
-
-  const handleAprobar = async (id: number, aprobado: boolean) => {
-    await fetch(`/api/viaticos/${id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ aprobado: aprobado ? 1 : 0 }) });
-    fetch_();
-  };
-
-  const totalPendiente = viaticos.filter(v => !v.aprobado).reduce((a, v) => a + v.importe, 0);
-  const totalAprobado = viaticos.filter(v => v.aprobado).reduce((a, v) => a + v.importe, 0);
+  // Totales resumen
+  const totalGeneral = grupos.reduce((s, g) => s + (Number(g.total_rendicion) || g.total), 0);
+  const sinOp = grupos.filter(g => !g.op_rendicion_id && g.aprobados === g.items.length && g.items.length > 0).length;
 
   return (
     <AppLayout>
+      {/* Header */}
       <div style={{ background: "white", borderBottom: "0.5px solid rgba(0,0,0,0.10)", padding: "0 28px", height: "56px", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
-        <div style={{ fontSize: "16px", fontWeight: "600" }}>Viáticos</div>
-        {isAdmin && <button className="btn-primary" onClick={() => { setForm({ ...emptyForm, fecha: new Date().toISOString().split("T")[0] }); setEditId(null); setError(""); setShowForm(true); }} style={{ display: "flex", alignItems: "center", gap: "6px" }}><Plus size={14} /> Nuevo viático</button>}
+        <div style={{ fontSize: "16px", fontWeight: "600" }}>Rendiciones</div>
+        <div style={{ fontSize: "13px", color: "#6b7280" }}>{grupos.length} rendiciones</div>
       </div>
 
       <div style={{ padding: "24px 28px", flex: 1, overflowY: "auto" }}>
         {/* Resumen */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", marginBottom: "24px" }}>
-          <div style={{ background: "white", borderRadius: "12px", padding: "16px 20px", border: "0.5px solid rgba(0,0,0,0.10)" }}>
-            <div style={{ fontSize: "12px", color: "#6b7280", marginBottom: "6px" }}>Pendiente de aprobación</div>
-            <div style={{ fontSize: "22px", fontWeight: "700", color: "#854F0B" }}>{formatCurrency(totalPendiente)}</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "16px", marginBottom: "24px" }}>
+          <div style={tileStyle}>
+            <div style={tileLabel}>Total rendido</div>
+            <div style={{ ...tileValue, color: "#111827" }}>{formatCurrency(totalGeneral)}</div>
           </div>
-          <div style={{ background: "white", borderRadius: "12px", padding: "16px 20px", border: "0.5px solid rgba(0,0,0,0.10)" }}>
-            <div style={{ fontSize: "12px", color: "#6b7280", marginBottom: "6px" }}>Aprobado</div>
-            <div style={{ fontSize: "22px", fontWeight: "700", color: "#0F6E56" }}>{formatCurrency(totalAprobado)}</div>
+          <div style={tileStyle}>
+            <div style={tileLabel}>Rendiciones</div>
+            <div style={{ ...tileValue, color: "#185fa5" }}>{grupos.length}</div>
+          </div>
+          <div style={tileStyle}>
+            <div style={tileLabel}>Aprobadas sin OP</div>
+            <div style={{ ...tileValue, color: sinOp > 0 ? "#854F0B" : "#0F6E56" }}>{sinOp}</div>
           </div>
         </div>
 
-        <div style={{ display: "flex", gap: "12px", marginBottom: "20px", flexWrap: "wrap" }}>
-          <div style={{ position: "relative", flex: 1, maxWidth: "320px" }}>
+        {/* Buscador */}
+        <div style={{ display: "flex", gap: "12px", marginBottom: "20px" }}>
+          <div style={{ position: "relative", flex: 1, maxWidth: "380px" }}>
             <Search size={14} style={{ position: "absolute", left: "10px", top: "50%", transform: "translateY(-50%)", color: "#9ca3af" }} />
-            <input placeholder="Buscar por empleado, tipo..." value={search} onChange={e => setSearch(e.target.value)} style={{ paddingLeft: "32px", fontSize: "13px" }} />
+            <input placeholder="Buscar por empleado, archivo..." value={search} onChange={e => setSearch(e.target.value)} style={{ paddingLeft: "32px", fontSize: "13px", width: "100%" }} />
           </div>
-          <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "13px", cursor: "pointer", background: "white", padding: "8px 14px", borderRadius: "8px", border: "0.5px solid rgba(0,0,0,0.10)" }}>
-            <input type="checkbox" checked={soloNoAprobados} onChange={e => setSoloNoAprobados(e.target.checked)} />
-            Solo pendientes de aprobación
-          </label>
         </div>
 
+        {error && <div style={{ background: "#f9ece7", color: "#993C1D", padding: "10px 16px", borderRadius: "8px", fontSize: "13px", marginBottom: "16px" }}>{error}</div>}
+
+        {/* Tabla agrupada */}
         <div style={{ background: "white", borderRadius: "12px", border: "0.5px solid rgba(0,0,0,0.10)", overflow: "hidden" }}>
-          {loading ? <div style={{ padding: "40px", textAlign: "center", color: "#6b7280" }}>Cargando...</div> : (
-            <table className="data-table">
+          {loading ? (
+            <div style={{ padding: "40px", textAlign: "center", color: "#6b7280" }}>Cargando...</div>
+          ) : grupos.length === 0 ? (
+            <div style={{ padding: "40px", textAlign: "center", color: "#9ca3af" }}>Sin rendiciones</div>
+          ) : (
+            <table className="data-table" style={{ tableLayout: "fixed", width: "100%" }}>
+              <colgroup>
+                <col style={{ width: "24px" }} />
+                <col style={{ width: "120px" }} />
+                <col style={{ width: "80px" }} />
+                <col />
+                <col style={{ width: "110px" }} />
+                <col style={{ width: "80px" }} />
+                <col style={{ width: "100px" }} />
+                <col style={{ width: "110px" }} />
+              </colgroup>
               <thead>
-                <tr><th>Empleado</th><th>Fecha</th><th>Tipo</th><th>Descripción</th><th>Rendición</th><th>Pago</th><th>Estado</th><th style={{ textAlign: "right" }}>Importe</th>{isAdmin && <th></th>}</tr>
+                <tr>
+                  <th></th>
+                  <th>Empleado</th>
+                  <th>Fecha</th>
+                  <th>Archivo</th>
+                  <th>Medio de pago</th>
+                  <th style={{ textAlign: "center" }}>Estado</th>
+                  <th style={{ textAlign: "right" }}>Total</th>
+                  <th style={{ textAlign: "center" }}>OP</th>
+                </tr>
               </thead>
               <tbody>
-                {viaticos.length === 0 ? (
-                  <tr><td colSpan={9} style={{ textAlign: "center", padding: "32px", color: "#9ca3af" }}>Sin viáticos</td></tr>
-                ) : viaticos.map(v => (
-                  <tr key={v.id}>
-                    <td style={{ fontWeight: "500" }}>{v.empleado}</td>
-                    <td style={{ fontSize: "12px" }}>{formatDate(v.fecha)}</td>
-                    <td><span className="badge badge-blue">{v.tipo}</span></td>
-                    <td style={{ color: "#6b7280", fontSize: "13px" }}>{v.descripcion || "—"}</td>
-                    <td style={{ fontSize: "12px" }}>
-                      {v.archivo_adjunto ? <a href={`/api/archivo?path=${encodeURIComponent(v.archivo_adjunto)}`} target="_blank" rel="noreferrer" style={{ color: "#185fa5" }}>{String(v.archivo_adjunto).split("/").pop()}</a> : "—"}
-                      {v.total_rendicion ? <div style={{ color: "#6b7280" }}>Total rendición: {formatCurrency(v.total_rendicion)}</div> : null}
-                      {v.observacion ? <div style={{ color: "#854F0B" }}>{v.observacion}</div> : null}
-                    </td>
-                    <td style={{ fontSize: "12px" }}>
-                      {v.medio_pago === "efectivo" ? "Efectivo" + (v.caja_mov_id ? " (caja chica)" : "") : v.medio_pago === "transferencia" ? "Transferencia" : "—"}
-                      {v.factura_id ? <div style={{ color: "#6b7280" }}>Con factura</div> : null}
-                    </td>
-                    <td>
-                      {v.aprobado
-                        ? <span className="badge badge-green">Aprobado</span>
-                        : <span className="badge badge-yellow">Pendiente</span>
-                      }
-                    </td>
-                    <td style={{ textAlign: "right", fontWeight: "700" }}>{v.moneda !== "ARS" ? `${v.moneda} ` : ""}{formatCurrency(v.importe)}</td>
-                    {isAdmin && <td>
-                      <div style={{ display: "flex", gap: "4px", justifyContent: "flex-end" }}>
-                        {!v.aprobado && (
-                          <button onClick={() => handleAprobar(v.id, true)} style={{ ...iconBtn, color: "#0F6E56" }} title="Aprobar"><CheckCircle size={13} /></button>
-                        )}
-                        {v.aprobado && (
-                          <button onClick={() => handleAprobar(v.id, false)} style={{ ...iconBtn, color: "#854F0B" }} title="Desaprobar"><X size={13} /></button>
-                        )}
-                        <button onClick={() => openEdit(v)} style={iconBtn}><Edit2 size={13} /></button>
-                        <button onClick={() => handleDelete(v.id)} style={{ ...iconBtn, color: "#993C1D" }}><Trash2 size={13} /></button>
-                      </div>
-                    </td>}
-                  </tr>
-                ))}
+                {grupos.map(g => {
+                  const exp = expandidos.has(g.clave);
+                  const todosAprobados = g.items.length > 0 && g.aprobados === g.items.length;
+                  const sinOpYAprobado = todosAprobados && !g.op_rendicion_id;
+                  const total = Number(g.total_rendicion) || g.total;
+
+                  return [
+                    // Fila del grupo
+                    <tr
+                      key={g.clave}
+                      style={{ cursor: "pointer", background: exp ? "#f8f9fb" : undefined }}
+                      onDoubleClick={() => toggleExpand(g.clave)}
+                      onClick={() => toggleExpand(g.clave)}
+                    >
+                      <td style={{ padding: "0 6px", width: "28px" }}>
+                        {exp
+                          ? <ChevronDown size={14} style={{ color: "#6b7280" }} />
+                          : <ChevronRight size={14} style={{ color: "#6b7280" }} />
+                        }
+                      </td>
+                      <td style={{ fontWeight: 600 }}>{g.empleado}</td>
+                      <td style={{ fontSize: "12px" }}>{g.fecha_rendicion ? formatDate(g.fecha_rendicion) : "—"}</td>
+                      <td style={{ fontSize: "12px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "5px" }}>
+                          <FileText size={12} style={{ color: "#9ca3af", flexShrink: 0 }} />
+                          {g.archivo_adjunto ? (
+                            <a
+                              href={`/api/archivo?path=${encodeURIComponent(g.archivo_adjunto)}`}
+                              target="_blank" rel="noreferrer"
+                              onClick={e => e.stopPropagation()}
+                              style={{ color: "#185fa5", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                            >
+                              {g.archivo_nombre}
+                            </a>
+                          ) : <span style={{ color: "#9ca3af" }}>—</span>}
+                          <span style={{ color: "#9ca3af", fontSize: "11px", flexShrink: 0 }}>({g.items.length})</span>
+                        </div>
+                      </td>
+                      <td>{medioPagoLabel(g.medio_pago)}</td>
+                      <td style={{ textAlign: "center" }}>
+                        {todosAprobados
+                          ? <span className="badge badge-green">Aprobada</span>
+                          : g.aprobados === 0
+                          ? <span className="badge badge-yellow">Pendiente</span>
+                          : <span className="badge badge-blue">{g.aprobados}/{g.items.length}</span>
+                        }
+                      </td>
+                      <td style={{ textAlign: "right", fontWeight: 700 }}>{formatCurrency(total)}</td>
+                      <td style={{ textAlign: "center" }}>
+                        {g.op_rendicion_id ? (
+                          <a
+                            href={`/ordenes-pago`}
+                            onClick={e => e.stopPropagation()}
+                            style={{ fontSize: "12px", color: "#185fa5", display: "flex", alignItems: "center", justifyContent: "center", gap: "3px" }}
+                          >
+                            {g.op_numero} <ExternalLink size={10} />
+                          </a>
+                        ) : sinOpYAprobado && isAdmin ? (
+                          <button
+                            onClick={e => { e.stopPropagation(); generarOp(g); }}
+                            disabled={generando === g.clave}
+                            style={{ fontSize: "11px", background: g.medio_pago === "efectivo" ? "#854F0B" : "#185fa5", color: "white", border: "none", borderRadius: "6px", padding: "4px 8px", cursor: "pointer", fontFamily: "inherit", fontWeight: 600 }}
+                          >
+                            {generando === g.clave ? "..." : g.medio_pago === "efectivo" ? "Generar OPE" : "Generar OP"}
+                          </button>
+                        ) : <span style={{ color: "#9ca3af", fontSize: "12px" }}>—</span>}
+                      </td>
+                    </tr>,
+
+                    // Detalle expandido
+                    exp && (
+                      <tr key={`${g.clave}-detail`}>
+                        <td colSpan={8} style={{ padding: 0, background: "#f8f9fb", borderBottom: "1.5px solid #e5e7eb" }}>
+                          <div style={{ padding: "0 20px 12px 48px" }}>
+                            {g.observacion && (
+                              <div style={{ fontSize: "12px", color: "#854F0B", padding: "8px 12px", background: "#fef3cd", borderRadius: "6px", marginBottom: "10px", marginTop: "8px" }}>
+                                {g.observacion}
+                              </div>
+                            )}
+                            <table style={{ width: "100%", fontSize: "12px", borderCollapse: "collapse" }}>
+                              <thead>
+                                <tr style={{ background: "#f3f4f6" }}>
+                                  <th style={{ padding: "5px 8px", textAlign: "left", fontWeight: 600, color: "#6b7280", fontSize: "11px" }}>FECHA</th>
+                                  <th style={{ padding: "5px 8px", textAlign: "left", fontWeight: 600, color: "#6b7280", fontSize: "11px" }}>DESCRIPCIÓN</th>
+                                  <th style={{ padding: "5px 8px", textAlign: "left", fontWeight: 600, color: "#6b7280", fontSize: "11px" }}>CATEGORÍA</th>
+                                  <th style={{ padding: "5px 8px", textAlign: "right", fontWeight: 600, color: "#6b7280", fontSize: "11px" }}>IMPORTE</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {g.items.map((it: any, idx: number) => {
+                                  const cat = clasificar(it.descripcion);
+                                  return (
+                                    <tr key={it.id} style={{ background: idx % 2 === 1 ? "#f9fafb" : "white", borderTop: "0.5px solid #e5e7eb" }}>
+                                      <td style={{ padding: "5px 8px" }}>{it.fecha ? formatDate(it.fecha) : "—"}</td>
+                                      <td style={{ padding: "5px 8px", color: "#374151" }}>{it.descripcion || it.tipo || "—"}</td>
+                                      <td style={{ padding: "5px 8px" }}>{badgeCategoria(cat)}</td>
+                                      <td style={{ padding: "5px 8px", textAlign: "right", fontWeight: 600 }}>{formatCurrency(it.importe)}</td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                              <tfoot>
+                                <tr style={{ borderTop: "1.5px solid #d1d5db" }}>
+                                  <td colSpan={3} style={{ padding: "6px 8px", fontWeight: 600, color: "#374151", fontSize: "12px" }}>Total rendición</td>
+                                  <td style={{ padding: "6px 8px", textAlign: "right", fontWeight: 700, color: "#111827" }}>
+                                    {formatCurrency(Number(g.total_rendicion) || g.total)}
+                                  </td>
+                                </tr>
+                              </tfoot>
+                            </table>
+                          </div>
+                        </td>
+                      </tr>
+                    ),
+                  ];
+                })}
               </tbody>
             </table>
           )}
         </div>
       </div>
-
-      {showForm && (
-        <div style={{ position: "fixed", inset: 0, zIndex: 300, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <div onClick={() => setShowForm(false)} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.4)" }} />
-          <div style={{ position: "relative", background: "white", borderRadius: "12px", padding: "28px", width: "520px" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "20px" }}>
-              <div style={{ fontSize: "15px", fontWeight: "700" }}>{editId ? "Editar viático" : "Nuevo viático"}</div>
-              <button onClick={() => setShowForm(false)} style={iconBtn}><X size={18} /></button>
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "14px" }}>
-              <div><label style={lbl}>Empleado *</label><input value={form.empleado} onChange={e => setForm(f => ({ ...f, empleado: e.target.value }))} placeholder="Nombre del empleado" /></div>
-              <div><label style={lbl}>Fecha *</label><input type="date" value={form.fecha} onChange={e => setForm(f => ({ ...f, fecha: e.target.value }))} /></div>
-              <div><label style={lbl}>Tipo *</label>
-                <select value={form.tipo} onChange={e => setForm(f => ({ ...f, tipo: e.target.value }))}>
-                  <option value="">— seleccionar —</option>
-                  {TIPOS.map(t => <option key={t} value={t}>{t}</option>)}
-                </select>
-              </div>
-              <div><label style={lbl}>Importe *</label><input type="number" value={form.importe} onChange={e => setForm(f => ({ ...f, importe: e.target.value }))} placeholder="0.00" step="0.01" /></div>
-              <div style={{ gridColumn: "span 2" }}><label style={lbl}>Descripción</label><input value={form.descripcion} onChange={e => setForm(f => ({ ...f, descripcion: e.target.value }))} placeholder="Detalle del viático" /></div>
-              <div><label style={lbl}>N° comprobante</label><input value={form.comprobante_numero} onChange={e => setForm(f => ({ ...f, comprobante_numero: e.target.value }))} placeholder="Opcional" /></div>
-              <div><label style={lbl}>Moneda</label>
-                <select value={form.moneda} onChange={e => setForm(f => ({ ...f, moneda: e.target.value }))}>
-                  <option value="ARS">ARS</option><option value="USD">USD</option>
-                </select>
-              </div>
-            </div>
-            {error && <div style={{ color: "#993C1D", fontSize: "13px", marginTop: "12px", background: "#f9ece7", padding: "10px", borderRadius: "8px" }}>{error}</div>}
-            <div style={{ display: "flex", gap: "10px", marginTop: "20px", justifyContent: "flex-end" }}>
-              <button onClick={() => setShowForm(false)} style={cancelBtn}>Cancelar</button>
-              <button onClick={handleSave} disabled={saving} style={primaryBtn}>{saving ? "Guardando..." : "Guardar"}</button>
-            </div>
-          </div>
-        </div>
-      )}
     </AppLayout>
   );
 }
 
-const lbl: React.CSSProperties = { display: "block", fontSize: "12px", fontWeight: "500", color: "#374151", marginBottom: "5px" };
-const iconBtn: React.CSSProperties = { background: "#f7f8fa", border: "0.5px solid rgba(0,0,0,0.10)", borderRadius: "7px", width: "30px", height: "30px", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: "#6b7280" };
-const primaryBtn: React.CSSProperties = { display: "flex", alignItems: "center", gap: "7px", background: "#185fa5", color: "white", border: "none", borderRadius: "8px", padding: "8px 16px", fontSize: "13px", fontWeight: "600", cursor: "pointer", fontFamily: "inherit" };
-const cancelBtn: React.CSSProperties = { background: "white", color: "#374151", border: "0.5px solid rgba(0,0,0,0.15)", borderRadius: "8px", padding: "9px 20px", fontSize: "14px", fontWeight: "500", cursor: "pointer", fontFamily: "inherit" };
+const tileStyle: React.CSSProperties = {
+  background: "white", borderRadius: "12px", padding: "16px 20px",
+  border: "0.5px solid rgba(0,0,0,0.10)",
+};
+const tileLabel: React.CSSProperties = { fontSize: "12px", color: "#6b7280", marginBottom: "6px" };
+const tileValue: React.CSSProperties = { fontSize: "22px", fontWeight: 700 };

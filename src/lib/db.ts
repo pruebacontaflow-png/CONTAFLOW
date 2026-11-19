@@ -710,6 +710,9 @@ async function initializeSchema() {
   await tryAlter(`ALTER TABLE viaticos ADD COLUMN caja_mov_id INTEGER DEFAULT NULL`);
   await tryAlter(`ALTER TABLE viaticos ADD COLUMN extracto_linea_id INTEGER DEFAULT NULL`);
 
+  // B.11 — OP ligada a la rendición (OPE para efectivo, OP normal para transferencia)
+  await tryAlter(`ALTER TABLE viaticos ADD COLUMN op_rendicion_id INTEGER DEFAULT NULL`);
+
   // Impuestos: columnas adicionales de DDJJ (PDF, organismo, saldo a favor)
   await tryAlter(`ALTER TABLE declaraciones_juradas ADD COLUMN archivo_path TEXT DEFAULT ''`);
   await tryAlter(`ALTER TABLE declaraciones_juradas ADD COLUMN organismo TEXT DEFAULT ''`);
