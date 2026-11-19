@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import {
   Plus, X, Check, Loader2, AlertTriangle, ChevronDown, ChevronRight,
   FileText, Trash2, Upload, CreditCard, Download } from "lucide-react";
+import { AppLayout } from "@/components/AppLayout";
 import { formatCurrency, formatDate } from "@/lib/utils";
 
 const ESTADO_ORDEN: Record<string, { label: string; bg: string; color: string }> = {
@@ -59,17 +60,29 @@ export default function OrdenesPagoPage() {
 
   useEffect(() => { if (status === "authenticated") fetchOrdenes(); }, [status, fetchOrdenes]);
 
+  const nextOpNumero = () => {
+    const year = new Date().getFullYear();
+    const prefix = `OP ${year}-`;
+    const nums = ordenes
+      .map((op: any) => op.numero as string)
+      .filter(n => n?.startsWith(prefix))
+      .map(n => parseInt(n.replace(prefix, ""), 10))
+      .filter(n => !isNaN(n));
+    const next = nums.length > 0 ? Math.max(...nums) + 1 : 1;
+    return `${prefix}${String(next).padStart(4, "0")}`;
+  };
+
   const openNew = async () => {
     const [pRes, cRes, rRes] = await Promise.all([
       fetch("/api/proveedores"),
       fetch("/api/bancos"),
       fetch("/api/retenciones-config"),
     ]);
-    if (pRes.ok) setProveedores(await pRes.ok ? await pRes.json() : []);
-    if (cRes.ok) setCuentas(await cRes.json());
+    if (pRes.ok) setProveedores(await pRes.json());
+    if (cRes.ok) { const d = await cRes.json(); setCuentas(d.cuentas || []); }
     if (rRes.ok) setRetConfigs((await rRes.json()).filter((r: any) => r.activo));
     setProveedorId(""); setFecha(new Date().toISOString().split("T")[0]);
-    setNumero(`OP-${Date.now().toString().slice(-6)}`);
+    setNumero(nextOpNumero());
     setCuentaBancariaId(""); setFacturasSelec(new Set()); setRetenciones([]);
     setEsAnticipo(false); setAnticipoImporte(""); setFacturaMontos({});
     setStep(1); setError(""); setShowNew(true);
@@ -176,6 +189,7 @@ export default function OrdenesPagoPage() {
   };
 
   return (
+    <AppLayout>
     <div style={{ padding: "28px" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "24px" }}>
         <div>
@@ -605,6 +619,7 @@ export default function OrdenesPagoPage() {
         </div>
       )}
     </div>
+    </AppLayout>
   );
 }
 
