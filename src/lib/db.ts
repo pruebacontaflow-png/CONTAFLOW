@@ -713,6 +713,10 @@ async function initializeSchema() {
   // B.11 — OP ligada a la rendición (OPE para efectivo, OP normal para transferencia)
   await tryAlter(`ALTER TABLE viaticos ADD COLUMN op_rendicion_id INTEGER DEFAULT NULL`);
 
+  // B.9 — Lote de pagos: fecha de pago separada de fecha de creación; OP por ítem al ejecutar
+  await tryAlter(`ALTER TABLE lotes_pago ADD COLUMN fecha_pago TEXT DEFAULT NULL`);
+  await tryAlter(`ALTER TABLE lotes_pago_items ADD COLUMN op_id INTEGER DEFAULT NULL`);
+
   // Impuestos: columnas adicionales de DDJJ (PDF, organismo, saldo a favor)
   await tryAlter(`ALTER TABLE declaraciones_juradas ADD COLUMN archivo_path TEXT DEFAULT ''`);
   await tryAlter(`ALTER TABLE declaraciones_juradas ADD COLUMN organismo TEXT DEFAULT ''`);

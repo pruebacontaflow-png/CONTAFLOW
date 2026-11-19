@@ -58,24 +58,40 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "No autorizado" }, { status: 403 });
   }
   try {
-    const { nombre, fecha, items } = await req.json();
-    if (!nombre || !fecha) {
-      return NextResponse.json({ error: "Nombre y fecha son requeridos" }, { status: 400 });
+    const { nombre, fecha, fecha_pago, items } = await req.json();
+    if (!fecha_pago) {
+      return NextResponse.json({ error: "Fecha de pago requerida" }, { status: 400 });
     }
+    const fechaCreacion = fecha || new Date().toISOString().split("T")[0];
+    const [yy, mm, dd] = fecha_pago.split("-");
+    const nombreFinal = nombre || `Lote ${dd}.${mm}.${yy}`;
     const total = (items || []).reduce((acc: number, i: any) => acc + (parseFloat(i.importe) || 0), 0);
     const loteResult = await db.run(
-      `INSERT INTO lotes_pago (nombre, fecha, estado, creado_por, total) VALUES (?,?,?,?,?)`,
-      [nombre, fecha, 'borrador', (session.user as any).email || '', total]
+      `INSERT INTO lotes_pago (nombre, fecha, fecha_pago, estado, creado_por, total) VALUES (?,?,?,?,?,?)`,
+      [nombreFinal, fechaCreacion, fecha_pago, "borrador", (session.user as any).email || "", total]
     );
     const loteId = Number(loteResult.lastInsertRowid);
     for (const item of (items || [])) {
       await db.run(
-        `INSERT INTO lotes_pago_items (lote_id, factura_id, importe, descripcion) VALUES (?,?,?,?)`,
-        [loteId, item.factura_id || null, parseFloat(item.importe) || 0, item.descripcion || '']
+        `INSERT INTO lotes_pago_items
+           (lote_id, factura_id, importe, descripcion, proveedor, comprobante, cbu, cuit, fecha_factura)
+         VALUES (?,?,?,?,?,?,?,?,?)`,
+        [
+          loteId,
+          item.factura_id || null,
+          parseFloat(item.importe) || 0,
+          item.descripcion || "",
+          item.proveedor || "",
+          item.comprobante || "",
+          item.cbu || "",
+          item.cuit || "",
+          item.fecha_factura || "",
+        ]
       );
     }
     return NextResponse.json({ id: String(loteId) }, { status: 201 });
-  } catch {
+  } catch (e) {
+    console.error(e);
     return NextResponse.json({ error: "Error interno" }, { status: 500 });
   }
 }
