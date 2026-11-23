@@ -1,184 +1,113 @@
-# Decisiones Pendientes — ContaFlow IT Click Video S.A.
+# Decisiones pendientes — ContaFlow
 
-_Actualizado: 04/11/2026_
-
-Estos puntos no pueden completarse sin respuesta de la contadora o revisión manual.
-Ver también: [`docs/validacion-2025.md`](validacion-2025.md)
+Generado: 22/11/2026. Actualizar con cada reunión con la contadora.
 
 ---
 
-## 1. Saldos iniciales al 01/01/2025
+## 0. Retenciones Ganancias — verificación contra certificados Tango
 
-No se tienen los saldos de apertura por cuenta contable. Faltan:
+### Regla implementada (confirmada por contadora 22/11/2026)
+- Régimen 094 — Locaciones de obra y/o servicios
+- Alícuota: 2% sobre importe neto sin IVA
+- MNI: $67.170 acumulado por proveedor y por mes calendario
+- Fórmula: `max(0, (acumulado_mes + base_nueva - 67170) × 0.02) - ya_retenido_en_mes`
 
-- **Saldo proveedores** (CxP 2024): total adeudado a cada proveedor al 31/12/2024.
-  → Pregunta: ¿Cuánto se le debía a cada proveedor al cierre 2024?
-- **Saldo clientes** (CxC 2024): total por cobrar al 31/12/2024.
-  → Pregunta: ¿Cuánto debía cada cliente al cierre 2024?
-- **Otros saldos iniciales** (impuestos, retenciones a depositar, préstamos, etc.)
-  → Estos deberían venir del balance cierre 2024 de Tango.
+### Certificados Tango — COINCIDEN (8)
 
-**Impacto:** Sin saldos iniciales, el Balance de Sumas y Saldos para 2025 no tiene período previo de comparación.
+| Proveedor | Período | Retenido Tango | Calculado | Diferencia |
+|-----------|---------|---------------:|----------:|----------:|
+| CIBEIRA | 2025-11 | $2.497,89 | $2.497,89 | $0,00 ✓ |
+| Sosa Edgardo | 2025-11 | $5.256,60 | $5.256,60 | $0,00 ✓ |
+| PILO | 2025-09 | $140.987,18 | $140.987,18 | $0,00 ✓ |
+| Pilo | 2025-11 | $86.570,17 | $86.570,17 | $0,00 ✓ |
+| Geo Media | 2025-10 | $347.980,20 | $347.980,20 | $0,00 ✓ |
+| Geo Media | 2025-11 | $70.086,38 | $70.086,38 | $0,00 ✓ |
+| FBR SA | 2025-11 | $130.888,00 | $130.888,00 | $0,00 ✓ |
+| FBR SA | 2025-12 | $114.359,08 | $114.359,08 | $0,00 ✓ |
 
----
+### Certificados Tango — NO COINCIDEN (6) — pendiente confirmar con contadora
 
-## 2. Movimientos de extracto sin cuenta contable (172 casos)
+| Proveedor | Período | Retenido Tango | Calculado por regla | Diferencia |
+|-----------|---------|---------------:|--------------------:|-----------:|
+| Pilo | 2025-10 | $445.989,29 | $114.940,44 | +$331.048,85 |
+| Pilo | 2025-12 | $75.040,20 | $73.696,80 | +$1.343,40 |
+| Kuarzo | 2025-11 | $180.366,60 | $92.546,96 | +$87.819,64 |
+| Geo Media | 2025-09 | $702.692,66 | $646.989,51 | +$55.703,15 |
+| Geo Media | 2025-12 | $295.566,28 | $288.954,71 | +$6.611,57 |
+| FBR SA | 2025-09 | $81.790,63 | $81.301,23 | +$489,40 |
 
-Del extracto Credicoop 2025, **172 movimientos** (mayormente sept–dic 2025) no tienen `cuenta_tango` asignada en la planilla. No se inventó ningún importe.
-
-Pendiente: revisar cada uno en Tango o en la planilla de extracto y asignar la cuenta correspondiente.
-
-**Archivos relacionados:**
-- `datos/2025/importar/extracto-credicoop-2025.csv` → columna `cuenta_tango` vacía
-- En DB: `SELECT fecha, descripcion, debito, credito FROM extractos_lineas WHERE cuenta_tango='' AND (debito>0 OR credito>0) ORDER BY fecha`
-
----
-
-## 3. Movimientos con dos cuentas Tango (10 casos)
-
-**10 movimientos** del extracto tienen el campo `cuenta_tango` con dos códigos separados por " y " (ej: `21408 y 42402`). En la DB se guardó la primera cuenta y se marcó `tiene_dos_cuentas=1`.
-
-Pendiente: decidir cómo distribuir el importe entre las dos cuentas para cada movimiento.
-
-**En DB:**
-```sql
-SELECT fecha, descripcion, debito, credito, cuenta_tango
-FROM extractos_lineas WHERE tiene_dos_cuentas=1
-```
+**Hipótesis:** Tango puede acumular distinto (distintas bases, distintos períodos, o incluye importes con IVA en la base).
+**Acción:** Consultar a Soledad si tiene los certificados físicos o el criterio de base que usaba Tango.
 
 ---
 
-## 4. Nombre de cuenta Tango no encontrado en plan (proveedores sin cuenta_contable_id)
+## 1. Otros regímenes de Ganancias
 
-**51 proveedores** tienen `cuenta_tango` en la planilla pero no se pudo resolver a un `id` en `plan_cuentas` (posiblemente el nombre no coincide exactamente).
+La tabla `retenciones_config` tiene desactivados los regímenes 067, 217 y 001.
+Los siguientes regímenes aparecen en `retenciones_aplicadas` importadas de Tango pero **no están configurados**:
 
-Pendiente: revisar los nombres en `proveedores.cuenta_tango` vs `plan_cuentas.nombre`.
+| Código Tango | Descripción probable | Proveedor ejemplo |
+|-------------|---------------------|-------------------|
+| 116 | Honorarios | — |
+| 30 | Alquiler | — |
+| (en blanco) | Locaciones anteriores a sep 2025 | Varios |
 
-```sql
-SELECT p.razon_social, p.cbu, p.servicio
-FROM proveedores p WHERE p.cuenta_contable_id IS NULL AND p.cuit != 'SIN-CUIT-TECSER'
-ORDER BY p.razon_social
-```
-
----
-
-## 5. Diferencias con Control_carga_2025.xlsx
-
-El archivo `datos/2025/importar/Control_carga_2025.xlsx` documenta diferencias encontradas al cruzar las fuentes originales. Revisar en conjunto con la contadora.
+**Acción:** Confirmar con Soledad si la empresa retiene por estos regímenes y cuál es la alícuota y MNI actual.
 
 ---
 
-## 6. TECSER — CUIT no disponible
+## 2. Alícuota para no inscriptos en Ganancias
 
-**TECSER** figura en el maestro de proveedores pero sin CUIT ni facturas en 2025. Se insertó con placeholder `SIN-CUIT-TECSER`.
+No se conoce la alícuota aplicable a proveedores no inscriptos (ni en RG 830 ni en monotributo).
 
-Pendiente: obtener el CUIT correcto y actualizar.
-
----
-
-## 7. PILAR TAPIA — Proveedor del exterior sin CUIT
-
-**PILAR TAPIA** es un proveedor del exterior (Invoice en USD) sin CUIT argentino. Se insertó con `cuit=''` y `condicion_iva='Del exterior'`.
-
-Los invoices se importaron en moneda USD pero el tipo de cambio que reporta ARCA (y el que figura en el CSV) es 1.0 — verificar si el importe ya está convertido a pesos o hay que registrarlo en USD.
+**Acción:** Consultar a Soledad la alícuota para no inscriptos (RG 830 art. 36).
 
 ---
 
-## 8. Retenciones de Ganancias — 2025 sin calcular
+## 3. Monotributistas
 
-Las retenciones de Ganancias (SICORE) del ejercicio 2025 se tienen en `datos/2025/impuestos/SICORE/`. **No se calcularon** en esta carga: solo existe el listado de SICORE que presentó la empresa.
+¿La empresa retiene Ganancias a monotributistas? ¿Hay MNI especial?
 
-Pendiente: confirmar con la contadora si hay que registrar las retenciones sufridas como deducción en el flujo de caja o solo en las DDJJ.
-
----
-
-## 9. Alícuotas y mínimos de retenciones (Bloque E — 55 preguntas contadora)
-
-La configuración de retenciones (`retenciones_config`) fue preservada del sistema anterior (5 regímenes). Verificar con la contadora que los valores de alícuota, mínimo no imponible y códigos SICORE sean correctos para 2025.
+**Acción:** Confirmar con Soledad.
 
 ---
 
-## 10. Notas de Crédito — Imputación a factura original
+## 4. Certificados de exclusión de Ganancias
 
-Las notas de crédito (recibidas y emitidas) se importaron como comprobantes independientes. No están imputadas a la factura original que cancelan.
+Se agregaron los campos en `proveedores`:
+- `exclusion_ganancias_cert` — número de certificado
+- `exclusion_ganancias_pct` — porcentaje de exclusión (0–100)
+- `exclusion_ganancias_desde` / `exclusion_ganancias_hasta` — vigencia
+- `exclusion_ganancias_pdf` — ruta al PDF
 
-Pendiente: decidir si se quiere imputar NC→factura o mantenerlas sueltas (el saldo de CxP/CxC las considera automáticamente por signo).
-
----
-
-## 11. Facturas Emitidas en USD
-
-Las facturas emitidas en moneda extranjera usan `tipo_cambio=1.0` según ARCA. Verificar si el importe en la DB está en ARS convertido o en USD nominal.
-
----
+**Estado:** Columnas creadas en la DB. Faltan:
+- UI en ficha del proveedor para cargar estos datos (punto 6 del prompt)
+- Lógica en `calcular-retenciones` para aplicar la exclusión vigente
 
 ---
 
-## 12. OPs 2025 — 16 pagos a proveedores sin cuenta en sistema
+## 5. Formato TXT SICORE
 
-Los siguientes proveedores tienen pagos en `pagos-2025.csv` pero no están en la tabla `proveedores` del sistema. Sus OPs **no fueron importadas** (16 filas):
+La contadora pidió exportación TXT SICORE (punto 8.2 del prompt).
+Formato oficial ARCA no verificado en detalle.
 
-| CUIT | Nombre | Nro. FCs |
-|------|--------|---------|
-| 20-32783602-2 | Bajarlia Daniel Adrian | FC 523, 524, 527 |
-| 20-24717418-5 | Gallego Rolando Pablo | FC 110, 112 |
-| 20-31303247-8 | Bandera Pablo | FC 6 |
-| 27-28800457-4 | (Devolución Bandera Pablo) | — |
-| 20-17692142-1 | Slusarczuk Eduardo | FC 80 |
-| 23-29655189-9 | Costos UCES | FC 99, 100, 102, 105, 106, 108 |
-| 20-18445583-9 | Falke Sofia | FC 2, 3, 4 |
-
-Pendiente: confirmar si son proveedores activos del sistema (agregar y re-importar) o pagos fuera del sistema (ej: empleados, gastos directos).
+**Acción:** Pedirle a Soledad el último TXT de ejemplo para validar el formato antes de implementar.
 
 ---
 
-## 13. Retenciones SICORE sin OP vinculada (8 certificados)
+## 6. IIBB — CM vigencia
 
-8 certificados de retención de `retenciones-2025.csv` no tienen Orden de Pago vinculada en el sistema (no aparecen en `pagos-2025.csv`):
-
-| Certificado | Retenido | CUIT | Impuesto |
-|------------|---------|------|---------|
-| 0000-2025-000033 | Diaz Mario | (sin CUIT) | Ganancias |
-| 0000-2025-000027 | Pilo Yamila Natalia | 27-30821026-5 | Ganancias |
-| 0000-2025-000032 | Rabinovich Sergio | 20-22962787-3 | Ganancias |
-| 0000-2025-000058 | Geo Media SA | 30-70723217-6 | Ganancias |
-| 0000-2025-000022 | Artusi Nicolas | (sin CUIT) | Ganancias |
-| 0000-2025-000018 | Geo Media SA | 30-70723217-6 | Ganancias |
-| 0000-2025-000019 | Pilo Yamila Natalia | 27-30821026-5 | Ganancias |
-| 0000-2025-000053 | Kuarzo Arg SA | 30-68847636-0 | Ganancias |
-
-Pendiente: identificar a qué OP corresponde cada certificado y vincularlos manualmente.
-Los 2 sin CUIT (Diaz Mario, Artusi Nicolas) también requieren obtener el CUIT.
+Las DDJJ de IIBB 2025 cargadas son de contribuyente local (SICOL, CABA).
+Desde qué mes rige el Convenio Multilateral: **dato a confirmar con Soledad**.
 
 ---
 
-## 14. Saldo CxP al 31/12/2025 — diferencia vs balance
+## 7. IIBB Buenos Aires — alícuota
 
-El saldo computado en ContaFlow para facturas recibidas pendientes al 31/12/2025:
-- **Pendientes (pagadas en 2026)**: $24,310,777.43 (56 facturas)
-- **Sin dato de pago**: $47,538,352.18 (55 facturas — incluye NCs?)
-- **Total**: $71,849,129.61
-
-El balance contable reporta **$51,448,632.32** de CxP al 31/12/2025.
-
-Diferencia: ~$20.4M. Posibles causas:
-- Las 37 Notas de Crédito ($39,647,194.26 neto) aplican contra facturas "sin dato de pago"
-- Facturas marcadas "no pagar según CxP" ($4,315,000) no están en el pasivo
-
-Pendiente: confirmar la composición del saldo CxP en el balance y qué facturas incluye.
+Actividad: 591110 Producción de filmes y videocintas.
+Alícuota CABA: 3% (confirmada).
+Alícuota Buenos Aires: **pendiente confirmar con Soledad**.
 
 ---
 
-## 15. Saldo CxC al 31/12/2025 — diferencia vs balance
-
-ContaFlow computa para facturas emitidas pendientes al 31/12/2025:
-- **Pendientes (cobradas en 2026)**: 12 facturas
-- **Sin dato de cobro**: 12 facturas
-- El saldo total pendiente no cierra aún con el balance de $67,788,800.01
-
-Pendiente: confirmar las 12 "sin dato de cobro" (posibles NCs de cancelación).
-Caso especial: Factura A 00001-00000236 a LATINA DE GESTION — diferencia de $847,000 con la NC asociada 00001-00000022. Consultar con la contadora.
-
----
-
-_Las decisiones que tomen en este archivo deben actualizarse borrando el punto o agregando "RESUELTO: [decisión]" al final de cada sección._
+*Próxima revisión: reunión con contadora.*

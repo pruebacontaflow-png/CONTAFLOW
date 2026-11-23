@@ -762,6 +762,26 @@ async function initializeSchema() {
       });
     }
   }
+
+  // Punto 0 (etapa 6b) — Solo somos agentes de Ganancias RG 830, no de IIBB (confirmado contadora 22-11-2026)
+  await c.execute(`UPDATE retenciones_config SET activo=0 WHERE tipo IN ('iibb_agip','iibb_arba')`);
+  await c.execute(`UPDATE retenciones_config SET activo=0 WHERE codigo_regimen IN ('067','217','001') AND tipo='ganancias_sicore'`);
+  // Régimen real: 094 Locaciones de obra y/o servicios, 2%, MNI $67.170 acumulado por proveedor y mes
+  await c.execute(`INSERT OR IGNORE INTO retenciones_config
+    (id,tipo,descripcion,codigo_regimen,alicuota,minimo_no_imponible,acumula_mensual,activo)
+    VALUES (6,'ganancias_sicore','Ganancias - Locaciones de obra y/o servicios (RG 830 reg. 094)','094',0.02,67170,1,1)`);
+
+  // Punto 0.5 — campos impositivos en proveedores y certificado de exclusión de Ganancias
+  await tryAlter(`ALTER TABLE proveedores ADD COLUMN condicion_ganancias TEXT DEFAULT ''`);
+  await tryAlter(`ALTER TABLE proveedores ADD COLUMN nro_iibb TEXT DEFAULT ''`);
+  await tryAlter(`ALTER TABLE proveedores ADD COLUMN jurisdiccion_iibb TEXT DEFAULT ''`);
+  await tryAlter(`ALTER TABLE proveedores ADD COLUMN exento_ganancias INTEGER DEFAULT 0`);
+  await tryAlter(`ALTER TABLE proveedores ADD COLUMN exento_iibb INTEGER DEFAULT 0`);
+  await tryAlter(`ALTER TABLE proveedores ADD COLUMN exclusion_ganancias_cert TEXT DEFAULT ''`);
+  await tryAlter(`ALTER TABLE proveedores ADD COLUMN exclusion_ganancias_pct REAL DEFAULT 0`);
+  await tryAlter(`ALTER TABLE proveedores ADD COLUMN exclusion_ganancias_desde TEXT DEFAULT ''`);
+  await tryAlter(`ALTER TABLE proveedores ADD COLUMN exclusion_ganancias_hasta TEXT DEFAULT ''`);
+  await tryAlter(`ALTER TABLE proveedores ADD COLUMN exclusion_ganancias_pdf TEXT DEFAULT ''`);
 }
 
 export default db;
